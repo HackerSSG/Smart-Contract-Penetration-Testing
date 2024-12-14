@@ -295,3 +295,125 @@ By using block numbers, the contract ensures that the sale cannot be manipulated
 In scenarios where more precise timing is needed, using a trusted external oracle for time data can provide a more secure solution.
 
 This approach reduces the risk of an attacker exploiting the contract by manipulating timestamps.
+
+-----------------------------------------------------------------------------------------------------------
+# 4-Gas Limit and Loops Attack
+
+### Attack Scenario:
+- **Gas Limit and Loops** issues occur when a contract performs a loop without considering the gas limit. Every transaction on the Ethereum network has a gas limit, which is the maximum amount of computational work a contract can perform. If a contract has a loop (such as iterating over an array or mapping) and the loop can run too many times, it may consume more gas than is allowed for a transaction. This can cause the transaction to fail, potentially making the contract unusable or leaving it open for a denial-of-service (DoS) attack.
+
+For example, a contract that iterates over a large array to check conditions or make changes to each element can run into issues when the number of elements grows, leading to excessive gas usage.
+
+### Real-Life Scenario:
+Imagine a contract that allows users to transfer tokens to multiple addresses at once (a "batch transfer" function). If the array of addresses grows too large, the gas required to execute the loop may exceed the gas limit, causing the transaction to fail and the contract to be unusable for large batches.
+
+### Vulnerable Code Example:
+
+```solidity
+pragma solidity ^0.8.0;
+
+contract BatchTransfer {
+    mapping(address => uint) public balances;
+
+    // Function to transfer tokens to multiple addresses
+    function batchTransfer(address[] memory recipients, uint amount) public {
+        for (uint i = 0; i < recipients.length; i++) {
+            balances[recipients[i]] += amount;  // Transfer tokens to each address
+        }
+    }
+}
+```
+## How the Attack Works:
+
+The contract has a loop in the batchTransfer function that iterates over all addresses in the recipients array.
+If the array of recipients is too large, the loop will consume too much gas, causing the transaction to fail.
+An attacker could exploit this by creating a large list of addresses, preventing others from using the contract or causing the contract to run out of gas.
+
+## Prevention:
+
+Limit the Number of Iterations: Restrict the size of arrays or the number of iterations in loops to prevent excessive gas consumption.
+Split the Functionality: Use multiple transactions to handle large batches instead of one big transaction.
+Check Gas Usage: Consider adding checks to ensure the contract won't run out of gas before completing a loop.
+
+## Fixed Code with Iteration Limit:
+
+```solidity
+pragma solidity ^0.8.0;
+
+contract SecureBatchTransfer {
+    mapping(address => uint) public balances;
+
+    uint public constant MAX_BATCH_SIZE = 100;  // Maximum number of recipients per batch
+
+    // Function to transfer tokens to multiple addresses with a limit on batch size
+    function batchTransfer(address[] memory recipients, uint amount) public {
+        require(recipients.length <= MAX_BATCH_SIZE, "Batch size exceeds limit");
+        for (uint i = 0; i < recipients.length; i++) {
+            balances[recipients[i]] += amount;  // Transfer tokens to each address
+        }
+    }
+}
+```
+## Why This Fix Works:
+
+Limiting the batch size ensures that the contract won’t run into gas limit issues, as fewer iterations mean lower gas consumption.
+Splitting large batches into smaller transactions can also prevent the gas limit from being exceeded and make the contract more scalable.
+
+By restricting the number of iterations or splitting tasks across multiple transactions, we can protect the contract from running into gas limit problems and ensure it works efficiently even with a large number of recipients.
+
+-----------------------------------------------------------------------------------------------------------
+
+# 5-Unchecked Call Return Values Attack
+
+### Attack Scenario:
+- **Unchecked Call Return Values** refer to the scenario where a contract calls an external function but does not properly check the return value or the success of that call. In Ethereum smart contracts, external calls (such as calling other contracts or transferring funds) return a boolean value indicating whether the operation succeeded. If a contract does not handle this return value properly, it may lead to unexpected behavior or vulnerabilities, such as failing to properly transfer funds or incorrectly assuming a call was successful.
+
+For example, if a contract calls another contract's function to transfer tokens but does not check whether the transfer was successful, it could unintentionally allow funds to be lost or not transferred as intended.
+
+### Real-Life Scenario:
+Imagine a contract that sends Ether to an external address. If the call fails (e.g., due to insufficient gas or the recipient's contract rejecting the call), the contract might not properly handle the failure and could continue executing, leading to funds being lost or state inconsistencies.
+
+### Vulnerable Code Example:
+
+```solidity
+pragma solidity ^0.8.0;
+
+contract FundTransfer {
+    // Function to transfer Ether to an external address
+    function transferFunds(address payable recipient, uint amount) public {
+        recipient.transfer(amount);  // No check on success
+    }
+}
+```
+
+## How the Attack Works:
+
+The transferFunds function sends Ether to a recipient address using the transfer function.
+However, the return value of the transfer function is not checked. If the transfer fails for any reason (e.g., the recipient is a contract that rejects the transfer), the contract will continue executing, and the transaction will appear successful even though the transfer failed.
+An attacker could exploit this by targeting a vulnerable contract with a recipient address that causes a failure in the transfer, resulting in unexpected behavior or loss of funds.
+
+## Prevention:
+
+Always check the return value of external calls to ensure they succeed. If the return value indicates failure, handle the error appropriately (e.g., revert the transaction).
+For calls that do not return a value (like transfer), use try/catch or require statements to ensure the operation was successful.
+Consider using the call method instead of transfer for better error handling.
+
+## Fixed Code with Return Value Check:
+
+```solidity
+pragma solidity ^0.8.0;
+
+contract SecureFundTransfer {
+    // Function to transfer Ether to an external address with success check
+    function transferFunds(address payable recipient, uint amount) public {
+        (bool success, ) = recipient.call{value: amount}("");  // Use call and check success
+        require(success, "Transfer failed");  // Revert if transfer fails
+    }
+}
+```
+## Why This Fix Works:
+
+The call method returns a boolean success value that indicates whether the call was successful.
+The contract checks the success value using require(). If the transfer fails (e.g., due to insufficient gas or a revert in the recipient contract), the transaction will revert, ensuring that the contract’s state remains consistent and no funds are lost.
+
+By properly handling the return value of external calls, we can prevent unintended behavior and ensure that the contract interacts safely with other contracts.
